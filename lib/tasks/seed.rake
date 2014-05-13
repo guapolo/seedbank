@@ -9,23 +9,28 @@ namespace :db do
     # Create seed tasks for all the seeds in seeds_path and add them to the dependency
     # list along with the original db/seeds.rb.
     common_dependencies = glob_seed_files_matching('*.seeds.rb').sort.map { |seed_file| seed_task_from_file(seed_file) }
-
-    desc "Load the seed data from db/seeds.rb and db/seeds/*.seeds.rb."
+    # Add seeds from each directory in common directory recursively 
+    common_dependencies += glob_seed_files_matching('common_seeds/**/*.seeds.rb').sort.map { |seed_file| seed_task_from_file(seed_file) }
+    desc "Load the seed data from db/seeds.rb, db/seeds/*.seeds.rb and db/seeds/common_seeds/**/*.seeds.rb recursively."
     task 'common' => base_dependencies + common_dependencies
 
     # Glob through the directories under seeds_path and create a task for each adding it to the dependency list.
     # Then create a task for the environment
     glob_seed_files_matching('/*/').each do |directory|
-      environment = File.basename(directory)
+      unless directory == 'common_seeds'
+        environment = File.basename(directory)
 
-      environment_dependencies = glob_seed_files_matching(environment, '*.seeds.rb').sort.map { |seed_file| seed_task_from_file(seed_file) }
+        environment_dependencies = glob_seed_files_matching(environment, '**/*').sort.map do |seed_file|
+          seed_task_from_file(seed_file) if File.directory?(seed_file) || File.fnmatch?("*.seeds.rb", seed_file)
+        end
 
-      desc "Load the seed data from db/seeds.rb, db/seeds/*.seeds.rb and db/seeds/#{environment}/*.seeds.rb."
-      task environment => ['db:seed:common'] + environment_dependencies
+        desc "Load the seed data from db/seeds.rb, db/seeds/*.seeds.rb, db/seeds/common_seeds/**/*.seeds.rb and db/seeds/#{environment}/**/*.seeds.rb recursively."
+        task environment => ['db:seed:common'] + environment_dependencies
 
-      override_dependency << "db:seed:#{environment}" if defined?(Rails) && Rails.env == environment
+        override_dependency << "db:seed:#{environment}" if defined?(Rails) && Rails.env == environment
+      end
     end
-
+    
     if Rails.version > '4'
       original_seeds_file = Rails.application.paths["db/seeds.rb"].existent.first
     elsif Rails.version > '3'
